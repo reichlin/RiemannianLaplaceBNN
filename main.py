@@ -9,30 +9,23 @@ from torch.utils.tensorboard import SummaryWriter
 from models_utils import regression_metrics, classification_metrics, get_regression_fig, get_banana_fig
 from datasets import Regression, Banana, Uci, Mnist
 from vi_model import VIBNN
-from la_models import LABNN, RLABNN
-
-
-
-''' TODO:
-
-6) implement Riemannian-LA
-
-'''
+from la_models import LABNN
+from test_model import Test_Model
 
 
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--experiment', default=0, type=int, help="0: regression, 1: banana, 2-7: UCI, 8: MNIST, 9: FashionMNIST")
 
-parser.add_argument('--model_type', default=2, type=int, help="0: VI_BNN, 1: Laplace_BNN, 2: Laplace_BNN_our, 3: RiemannianLaplace_BNN")
-parser.add_argument('--model_size', default=1, type=int, help="0: small, 1: big, 2: real")
+parser.add_argument('--model_type', default=2, type=int, help="-1: test, 0: VI_BNN, 1: Laplace_BNN, 2: Laplace_BNN_our, 3: RiemannianLaplace_BNN")
+parser.add_argument('--model_size', default=0, type=int, help="0: small, 1: big, 2: real")
 parser.add_argument('--seed', default=0, type=int, help="seed")
 
 parser.add_argument('--wd', default=0.01, type=float, help="L2 regularization")
 parser.add_argument('--kl', default=0.01, type=float, help="KL weighting term")
 parser.add_argument('--std', default=0, type=float, help="initial standard deviation")
 
-parser.add_argument('--hessian_type', default=1, type=int, help="0: full, 1: diag, 2: fisher, 3: kron, 4: lowrank, 5: gp")
+parser.add_argument('--hessian_type', default=6, type=int, help="0: full, 1: diag, 2: fisher, 3: kron, 4: lowrank, 5: gp, 6:gauss_newton")
 parser.add_argument('--prob', default=0, type=int, help="0: deterministic_out, 1: probabilistic_out")
 
 args = parser.parse_args()
@@ -45,7 +38,7 @@ torch.manual_seed(seed)
 np.random.seed(seed)
 
 model_type = args.model_type
-model_names = {0: 'VI_BNN', 1: 'Laplace_BNN', 2: 'Laplace_BNN_our', 3: 'RiemannianLaplace_BNN'}
+model_names = {-1: 'test', 0: 'VI_BNN', 1: 'Laplace_BNN', 2: 'Laplace_BNN_our', 3: 'RiemannianLaplace_BNN'}
 model_sizes = {0: 'small', 1: 'big', 2: 'real'}
 model_size = model_sizes[args.model_size]
 experiments_type = {0: 'regression',
@@ -85,11 +78,11 @@ if experiment == 'regression':
     loss_type = 'NLL' if probabilistic else 'mse'
 
     if model_size == 'small':
-        network_specs = {'architecure': [[1, 15], [15, 1+args.prob]], 'activation': nn.Tanh()}
+        network_specs = {'architecture': [[1, 15], [15, 1+args.prob]], 'activation': nn.Tanh()}
     elif model_size == 'big':
-        network_specs = {'architecure': [[1, 10], [10, 10], [10, 1+args.prob]], 'activation': nn.Tanh()}
+        network_specs = {'architecture': [[1, 10], [10, 10], [10, 1+args.prob]], 'activation': nn.Tanh()}
     else:
-        network_specs = {'architecure': [[1, 32], [32, 32], [32, 32], [32, 1+args.prob]], 'activation': nn.ReLU()}
+        network_specs = {'architecture': [[1, 32], [32, 32], [32, 32], [32, 1+args.prob]], 'activation': nn.ReLU()}
 
     plotter = get_regression_fig
     get_metrics = regression_metrics
@@ -101,7 +94,7 @@ if experiment == 'regression':
 elif experiment == 'banana':
 
     # L2 1e-2
-    network_specs = {'architecure': [[2, 16], [16, 16], [16, 2]], 'activation': nn.Tanh()}
+    network_specs = {'architecture': [[2, 16], [16, 16], [16, 2]], 'activation': nn.Tanh()}
 
     batch_size = 32
     n_test_samples = 100
@@ -129,7 +122,7 @@ elif experiment[:3] == 'UCI':
         'UCI_waveform': [21, 3]
     }
 
-    network_specs = {'architecure': [[data_specs[experiment][0], 50], [50, data_specs[experiment][1]]], 'activation': nn.Tanh()}
+    network_specs = {'architecture': [[data_specs[experiment][0], 50], [50, data_specs[experiment][1]]], 'activation': nn.Tanh()}
 
     batch_size = 32
     n_test_samples = 30
@@ -148,7 +141,7 @@ elif experiment[:3] == 'UCI':
 
 elif experiment[-5:] == 'MNIST':
 
-    network_specs = {'architecure': [[1, 5, 4], [4, 5, 4], [4*(4**2), 16], [16, 10], [10, 10], [10, 10]], 'activation': nn.Tanh()}
+    network_specs = {'architecture': [[1, 5, 4], [4, 5, 4], [4*(4**2), 16], [16, 10], [10, 10], [10, 10]], 'activation': nn.Tanh()}
 
     batch_size = 32
     n_test_samples = 25
@@ -181,23 +174,28 @@ if model_names[model_type] == 'VI_BNN':  # VI hyperparams
 
 elif model_names[model_type][:11] == 'Laplace_BNN':  # LA hyperparams
 
-    hessian_types = {0: 'full', 1: 'diag', 2: 'fisher', 3: 'kron', 4: 'lowrank', 5: 'gp'}
+    hessian_types = {0: 'full', 1: 'diag', 2: 'fisher', 3: 'kron', 4: 'lowrank', 5: 'gp', 6: 'gauss_newton'}
     hessian_type = hessian_types[args.hessian_type]
 
     implementation_type = 0 if model_names[model_type] == 'Laplace_BNN' else 1
 
-    model = LABNN(implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, device).to(device)
+    marginal_type = 'determinant'
+
+    model = LABNN(implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, device).to(device)
 
     name_exp += '_hessian_type=' + hessian_type
 
 else:
 
-    # TODO
+    hessian_types = {0: 'full', 1: 'diag', 2: 'fisher', 3: 'kron', 4: 'lowrank', 5: 'gp', 6: 'gauss_newton'}
+    hessian_type = hessian_types[args.hessian_type]
 
-    model = RLABNN(network_specs, weight_decay, lr, loss_type, n_test_samples, device).to(device)
+    model = Test_Model(loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, device).to(device)
+
+    name_exp += '_hessian_type=' + hessian_type
 
 
-writer = SummaryWriter("logs/" + name_exp + "")
+writer = SummaryWriter("logs/" + name_exp + "bohboh")
 
 
 loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=0, shuffle=True)
@@ -225,8 +223,8 @@ for epoch in tqdm(range(EPOCHS)):
 
         metrics = get_metrics(model, loader)
         for metric_key in metrics:
-            writer.add_scalar('Metrics/' + metric_key + '/mean', metrics[metric_key][0], int(epoch % testing_epochs))
-            writer.add_scalar('Metrics/' + metric_key + '/std', metrics[metric_key][1], int(epoch % testing_epochs))
+            writer.add_scalar('Metrics/' + metric_key + '/mean', metrics[metric_key][0], int(epoch / testing_epochs))
+            writer.add_scalar('Metrics/' + metric_key + '/std', metrics[metric_key][1], int(epoch / testing_epochs))
 
         fig = plotter(model, loader, device)
         if fig is not None:

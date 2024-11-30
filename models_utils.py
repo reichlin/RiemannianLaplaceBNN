@@ -19,7 +19,7 @@ class Network(nn.Module):
         self.probabilistic = probabilistic
 
         self.theta_shapes = []
-        for layer in network_specs['architecure']:
+        for layer in network_specs['architecture']:
             if len(layer) == 2:
                 self.theta_shapes.append([layer[1], layer[0]])
                 self.theta_shapes.append([layer[1]])
@@ -73,30 +73,47 @@ class Network(nn.Module):
         mu, sigma = torch.split(out, out.shape[-1] // 2, dim=-1)
         return torch.concatenate([mu, F.softplus(sigma) + 0.01], -1)
 
+    # def loss_neglikelihood(self, y_pred, y):
+    #     if self.loss_type == 'mse':
+    #         mse = (y_pred - y)**2
+    #         if y_pred.dim() > 2:
+    #             mse = torch.sum(mse, dim=tuple(range(1, mse.dim())))
+    #         return mse.mean()
+    #     elif self.loss_type == 'NLL':
+    #         N = Normal(*torch.split(y_pred, y_pred.shape[-1] // 2, dim=-1))
+    #         nll = - N.log_prob(y)
+    #         if y_pred.dim() > 2:
+    #             nll = torch.sum(nll, dim=tuple(range(1, nll.dim())))
+    #         return nll.mean()
+    #     elif self.loss_type == 'CE':
+    #
+    #         shape = y.shape
+    #         if len(shape) > 1:
+    #             y = y.view(-1)
+    #             y_pred = y_pred.view(-1, y_pred.shape[-1])
+    #             ce = F.cross_entropy(y_pred, y.long(), reduction='none')
+    #             ce = torch.reshape(ce, shape)
+    #             ce = torch.sum(ce, dim=tuple(range(1, ce.dim())))
+    #         else:
+    #             ce = F.cross_entropy(y_pred, y.long(), reduction='none')
+    #         return ce.mean()
     def loss_neglikelihood(self, y_pred, y):
         if self.loss_type == 'mse':
-            mse = (y_pred - y)**2
-            if y_pred.dim() > 2:
-                mse = torch.sum(mse, dim=tuple(range(1, mse.dim())))
-            return mse.mean()
+            L = (y_pred - y)**2 / 2
         elif self.loss_type == 'NLL':
             N = Normal(*torch.split(y_pred, y_pred.shape[-1] // 2, dim=-1))
-            nll = - N.log_prob(y)
-            if y_pred.dim() > 2:
-                nll = torch.sum(nll, dim=tuple(range(1, nll.dim())))
-            return nll.mean()
+            L = - N.log_prob(y)
         elif self.loss_type == 'CE':
-
             shape = y.shape
             if len(shape) > 1:
                 y = y.view(-1)
                 y_pred = y_pred.view(-1, y_pred.shape[-1])
-                ce = F.cross_entropy(y_pred, y.long(), reduction='none')
-                ce = torch.reshape(ce, shape)
-                ce = torch.sum(ce, dim=tuple(range(1, ce.dim())))
-            else:
-                ce = F.cross_entropy(y_pred, y.long(), reduction='none')
-            return ce.mean()
+            L = F.cross_entropy(y_pred, y.long(), reduction='none')
+            #     ce = torch.reshape(ce, shape)
+            #     ce = torch.sum(ce, dim=tuple(range(1, ce.dim())))
+            # else:
+            #     ce = F.cross_entropy(y_pred, y.long(), reduction='none')
+        return L.sum()
 
 
 def regression_metrics(model, loader):
@@ -104,7 +121,7 @@ def regression_metrics(model, loader):
     stats_metrics = {}
 
     x_test, y_test = loader.dataset.x_test, loader.dataset.y_test
-    y_mu, y_std, py = model.posterior(x_test, loader)
+    y_map, y_mu, y_std, py = model.posterior(x_test, loader)
 
     y = y_test.detach().cpu().numpy()[:,0]
     dist_y_pred = py.detach().cpu().numpy()[:, :, 0]
@@ -112,14 +129,14 @@ def regression_metrics(model, loader):
     mse = np.array([metrics.mean_squared_error(y, dist_y_pred[i]) for i in range(dist_y_pred.shape[0])])
     stats_metrics['MSE'] = [np.mean(mse), np.std(mse)]
 
-
+    return stats_metrics
 
 def classification_metrics(model, loader):
 
     stats_metrics = {}
 
     x_test, y_test = loader.dataset.x_test, loader.dataset.y_test
-    y_mu, y_std, py = model.posterior(x_test, loader)
+    y_map, y_mu, y_std, py = model.posterior(x_test, loader)
 
     y = y_test.detach().cpu().numpy()
     dist_y_pred = torch.softmax(py, -1).detach().cpu().numpy()
@@ -146,19 +163,20 @@ def classification_metrics(model, loader):
 def get_regression_fig(model, loader, device):
 
     all_x = torch.linspace(-3, 10, 100).float().to(device).view(-1, 1)
-    y_mu, y_std, py = model.posterior(all_x, loader)
+    y_map, y_mu, y_std, py = model.posterior(all_x, loader)
 
     x_train, y_train = loader.dataset.x_train.detach().cpu().numpy()[:, 0], loader.dataset.y_train.detach().cpu().numpy()[:, 0]
     x_test, y_test = loader.dataset.x_test.detach().cpu().numpy()[:, 0], loader.dataset.y_test.detach().cpu().numpy()[:, 0]
     all_x = all_x.detach().cpu().numpy()[:, 0]
     y_mu, y_std = y_mu.detach().cpu().numpy()[:, 0], y_std.detach().cpu().numpy()[:, 0]
+    y_map = y_map.detach().cpu().numpy()[:, 0]
 
     fig = plt.figure()
 
     plt.scatter(x_train, y_train, color='tab:blue')
     plt.scatter(x_test, y_test, color='tab:red')
-    plt.plot(all_x, y_mu, color='tab:green', linewidth=3)
-    plt.fill_between(all_x, y_mu - y_std, y_mu + y_std, alpha=0.5, color='tab:green')
+    plt.plot(all_x, y_map, color='tab:green', linewidth=3)
+    plt.fill_between(all_x, y_map - y_std, y_map + y_std, alpha=0.5, color='tab:green')
     for y_sample in py:
         plt.plot(all_x, y_sample.detach().cpu().numpy()[:, 0], color='tab:orange', alpha=0.1)
     plt.ylim(-4, 4)
@@ -184,9 +202,9 @@ def get_banana_fig(model, loader, device):
     X_grid = np.column_stack((XX1.ravel(), XX2.ravel()))
     all_x = torch.from_numpy(X_grid).float().to(device)
 
-    y_mu, y_std, py = model.posterior(all_x, loader)
+    y_map, y_mu, y_std, py = model.posterior(all_x, loader)
 
-    y_map = torch.reshape(y_mu, (N_grid, N_grid, 2)).detach().cpu().numpy()
+    y_map = torch.reshape(y_map, (N_grid, N_grid, 2)).detach().cpu().numpy()
     y_map = softmax(y_map, -1)
     py = torch.reshape(py, (-1, N_grid, N_grid, 2)).detach().cpu().numpy()
     py_class = (py[:, :, :, 0] > py[:, :, :, 1]) * 1.
