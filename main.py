@@ -70,8 +70,8 @@ if experiment == 'regression':
     batch_size = 32 #150
     n_test_samples = 100
     lr = 1e-3
-    EPOCHS = 1000000
-    testing_epochs = 10000
+    EPOCHS = int(1000000 * 1e-4)
+    testing_epochs = int(10000 * 1e-4)
     ood = True
     probabilistic = args.prob == 1
     loss_type = 'NLL' if probabilistic else 'mse'
@@ -79,7 +79,7 @@ if experiment == 'regression':
     if model_size == 'small':
         network_specs = {'architecture': [[1, 15], [15, 1+args.prob]], 'activation': nn.Tanh()}
     elif model_size == 'big':
-        network_specs = {'architecture': [[1, 10], [10, 10], [10, 1+args.prob]], 'activation': nn.Tanh()}
+        network_specs = {'architecture': [[1, 10], [10, 10], [10, 1+args.prob]], 'activagittion': nn.Tanh()}
     else:
         network_specs = {'architecture': [[1, 32], [32, 32], [32, 32], [32, 1+args.prob]], 'activation': nn.ReLU()}
 
@@ -180,9 +180,10 @@ elif model_names[model_type][:11] == 'Laplace_BNN':  # LA hyperparams
 
     marginal_type = 'determinant'
 
-    model = LABNN(implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, device).to(device)
+    model = LABNN(implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, True, device).to(device)
 
     name_exp += '_hessian_type=' + hessian_type
+
 
 
 writer = SummaryWriter("logs/" + name_exp + "bohboh")

@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.autograd.functional import hessian
+from torch.autograd.functional import hessian, jvp, jacobian
 from torch.distributions.normal import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
 import matplotlib.pyplot as plt
@@ -11,10 +11,12 @@ from models_utils import Network
 
 from laplace import Laplace
 
+from torchdiffeq import odeint
+
 
 class LABNN(nn.Module):
 
-    def __init__(self, implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, device):
+    def __init__(self, implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, do_riemannian, device):
         super().__init__()
 
         self.marginal_type = marginal_type
@@ -27,6 +29,8 @@ class LABNN(nn.Module):
         self.weight_decay = weight_decay
 
         self.hessian_type = hessian_type
+
+        self.do_riemannian = do_riemannian
 
         self.f = Network(network_specs, loss_type, probabilistic=probabilistic)
         self.theta = nn.ParameterList([nn.Parameter(torch.zeros(t_size), requires_grad=True) for t_size in self.f.get_theta_shape()])
@@ -84,6 +88,7 @@ class LABNN(nn.Module):
         all_marginals = []
         for w in all_w:
             try:
+                I = torch.eye(H.shape[0]).to(self.device)
                 mu_zero = torch.zeros(H.shape[0]).to(H.device)
                 L_like = self.f.loss_neglikelihood(self(x, theta), y)
 
@@ -137,18 +142,22 @@ class LABNN(nn.Module):
             py = torch.stack([self(all_x, self.f.get_unflat_params(weights)) for weights in la.sample(self.n_test_samples)], 0)
 
         else:
-            x_train, y_train = loader.dataset.x_train, loader.dataset.y_train
+            self.x_train, self.y_train = loader.dataset.x_train, loader.dataset.y_train
 
             theta = self.f.get_flat_params(self.theta)
 
-            H = self.get_hessian(theta, x_train, y_train.float())
+            H = self.get_hessian(theta, self.x_train, self.y_train.float())
 
-            best_w = self.find_hyper(theta, H, x_train, y_train, 100)
+            best_w = self.find_hyper(theta, H, self.x_train, self.y_train, 100)
 
             posterior_precision = H + best_w * self.I
 
             p_theta = MultivariateNormal(theta, precision_matrix=posterior_precision)
-            py = torch.stack([self(all_x, p_theta.sample()) for _ in range(self.n_test_samples)], 0)
+            if self.do_riemannian:
+                self.n_theta = theta.shape[0]
+                py = torch.stack([self(all_x, self.solve_expmap(theta, p_theta.sample())) for _ in range(self.n_test_samples)], 0)
+            else:
+                py = torch.stack([self(all_x, p_theta.sample()) for _ in range(self.n_test_samples)], 0)
 
         y_map = self(all_x, self.theta)
 
@@ -156,3 +165,23 @@ class LABNN(nn.Module):
         y_std = py.std(0)
         return y_map, y_mu, y_std, py
 
+    def solve_expmap(self, x, v):
+        # exp_x(v) for point on manifold x & tangent vector v
+        self.delta_t = 1e-2
+        ode_time_vec = torch.arange(1/self.delta_t + 1, dtype=torch.float).to(self.device) * self.delta_t
+        x0 = torch.cat((x, v), dim=-1)
+        out = odeint(self.geodesic_ode_fun, x0, ode_time_vec, method='euler')
+        theta = out[-1, :self.n_theta]
+        return theta
+
+    def geodesic_ode_fun(self, t, x):
+        gamma, dgamma = torch.split(x, split_size_or_sections=int(self.n_theta), dim=-1)
+
+        dL = self.grad_loss(gamma)
+        _, hvp = jvp(self.grad_loss, gamma, dgamma)
+        ddgamma = -dL / (1 + torch.dot(dL, dL)) * torch.dot(dgamma, hvp)
+        dx = torch.cat((dgamma, ddgamma), dim=-1)
+        return dx
+
+    def grad_loss(self, theta):
+        return jacobian(self.loss_f, (theta, self.x_train, self.y_train), create_graph=True)[0]
