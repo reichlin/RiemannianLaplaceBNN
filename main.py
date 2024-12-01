@@ -10,7 +10,6 @@ from models_utils import regression_metrics, classification_metrics, get_regress
 from datasets import Regression, Banana, Uci, Mnist
 from vi_model import VIBNN
 from la_models import LABNN
-from test_model import Test_Model
 
 
 parser = argparse.ArgumentParser()
@@ -182,15 +181,6 @@ elif model_names[model_type][:11] == 'Laplace_BNN':  # LA hyperparams
     marginal_type = 'determinant'
 
     model = LABNN(implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, device).to(device)
-
-    name_exp += '_hessian_type=' + hessian_type
-
-else:
-
-    hessian_types = {0: 'full', 1: 'diag', 2: 'fisher', 3: 'kron', 4: 'lowrank', 5: 'gp', 6: 'gauss_newton'}
-    hessian_type = hessian_types[args.hessian_type]
-
-    model = Test_Model(loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, device).to(device)
 
     name_exp += '_hessian_type=' + hessian_type
 

@@ -32,6 +32,8 @@ class LABNN(nn.Module):
         self.theta = nn.ParameterList([nn.Parameter(torch.zeros(t_size), requires_grad=True) for t_size in self.f.get_theta_shape()])
         self.f.init_params(self.theta)
 
+        self.I = torch.eye(self.f.tot_params).to(self.device)
+
         self.optimizer = torch.optim.AdamW(self.parameters(), lr=lr, weight_decay=weight_decay)
         # self.optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=weight_decay)
 
@@ -82,13 +84,12 @@ class LABNN(nn.Module):
         all_marginals = []
         for w in all_w:
             try:
-                I = torch.eye(H.shape[0]).to(self.device)
                 mu_zero = torch.zeros(H.shape[0]).to(H.device)
                 L_like = self.f.loss_neglikelihood(self(x, theta), y)
 
-                precision_posterior = H + w * I
+                precision_posterior = H + w * self.I
                 q = MultivariateNormal(theta, precision_matrix=precision_posterior)
-                p = MultivariateNormal(mu_zero, precision_matrix=w * I)
+                p = MultivariateNormal(mu_zero, precision_matrix=w * self.I)
                 L_posterior = L_like - p.log_prob(theta)
 
                 if self.marginal_type == 'determinant':
@@ -101,7 +102,11 @@ class LABNN(nn.Module):
                     log_p_mc = torch.sum(torch.stack([p.log_prob(theta_sample) for theta_sample in dist_theta], 0))
                     log_q_mc = torch.sum(torch.stack([q.log_prob(theta_sample) for theta_sample in dist_theta], 0))
                     log_marginal = log_like_mc + log_p_mc - log_q_mc
-                all_marginals.append(log_marginal.detach().cpu().item())
+                if torch.isnan(log_marginal) or torch.isinf(log_marginal):
+                    log_marginal = -np.inf
+                else:
+                    log_marginal = log_marginal.detach().cpu().item()
+                all_marginals.append(log_marginal)
             except:
                 all_marginals.append(-np.inf)
         return all_w[np.argmax(np.array(all_marginals))]
@@ -140,9 +145,9 @@ class LABNN(nn.Module):
 
             best_w = self.find_hyper(theta, H, x_train, y_train, 100)
 
-            var = torch.linalg.inv((H + best_w * torch.eye(H.shape[0]).to(self.device)))
+            posterior_precision = H + best_w * self.I
 
-            p_theta = MultivariateNormal(theta, var)
+            p_theta = MultivariateNormal(theta, precision_matrix=posterior_precision)
             py = torch.stack([self(all_x, p_theta.sample()) for _ in range(self.n_test_samples)], 0)
 
         y_map = self(all_x, self.theta)
