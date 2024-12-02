@@ -27,7 +27,7 @@ parser.add_argument('--std', default=0, type=float, help="initial standard devia
 parser.add_argument('--hessian_type', default=6, type=int, help="0: full, 1: diag, 2: fisher, 3: kron, 4: lowrank, 5: gp, 6:gauss_newton")
 parser.add_argument('--prob', default=0, type=int, help="0: deterministic_out, 1: probabilistic_out")
 
-parser.add_argument('--use_reimann', default=1, type=int, help="0: don't use, 1: use")
+parser.add_argument('--use_riemann', default=1, type=int, help="0: don't use, 1: use")
 
 args = parser.parse_args()
 

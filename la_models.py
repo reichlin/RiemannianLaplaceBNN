@@ -101,12 +101,13 @@ class LABNN(nn.Module):
                     logdet_posterior = - torch.log(torch.linalg.det(precision_posterior))
                     log_marginal = - L_posterior + 0.5 * logdet_posterior
                 else:
+                    assert self.self.loss_category == 'regression', print("marginal expectation not implemented for classification")
                     dist_theta = torch.stack([q.sample() for _ in range(samples)], 0)
                     y_mc = torch.stack([self(x, theta_sample) for theta_sample in dist_theta], 0)
-                    log_like_mc = - self.f.loss_neglikelihood(y_mc, torch.cat([torch.unsqueeze(y, 0)] * samples, 0))
-                    log_p_mc = torch.sum(torch.stack([p.log_prob(theta_sample) for theta_sample in dist_theta], 0))
-                    log_q_mc = torch.sum(torch.stack([q.log_prob(theta_sample) for theta_sample in dist_theta], 0))
-                    log_marginal = log_like_mc + log_p_mc - log_q_mc
+                    log_D = torch.sum(- (y_mc - torch.cat([torch.unsqueeze(y, 0)] * samples, 0)) ** 2 / 2, (1, 2))
+                    log_p_mc = torch.stack([p.log_prob(theta_sample) for theta_sample in dist_theta], 0)
+                    log_q_mc = torch.stack([q.log_prob(theta_sample) for theta_sample in dist_theta], 0)
+                    log_marginal = torch.logsumexp(log_D + log_p_mc - log_q_mc, dim=0)
                 if torch.isnan(log_marginal) or torch.isinf(log_marginal):
                     log_marginal = -np.inf
                 else:
