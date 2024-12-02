@@ -70,8 +70,8 @@ if experiment == 'regression':
     batch_size = 32 #150
     n_test_samples = 100
     lr = 1e-3
-    EPOCHS = int(1000000 * 1e-4)
-    testing_epochs = int(10000 * 1e-4)
+    EPOCHS = int(100)
+    testing_epochs = 10
     ood = True
     probabilistic = args.prob == 1
     loss_type = 'NLL' if probabilistic else 'mse'

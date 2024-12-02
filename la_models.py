@@ -8,6 +8,7 @@ from torch.distributions.normal import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
 import matplotlib.pyplot as plt
 from models_utils import Network
+from scipy.integrate import solve_ivp
 
 from laplace import Laplace
 
@@ -167,20 +168,19 @@ class LABNN(nn.Module):
 
     def solve_expmap(self, x, v):
         # exp_x(v) for point on manifold x & tangent vector v
-        self.delta_t = 1e-2
-        ode_time_vec = torch.arange(1/self.delta_t + 1, dtype=torch.float).to(self.device) * self.delta_t
         x0 = torch.cat((x, v), dim=-1)
-        out = odeint(self.geodesic_ode_fun, x0, ode_time_vec, method='euler')
-        theta = out[-1, :self.n_theta]
+        sol = solve_ivp(self.geodesic_ode_fun, [0, 1], x0.detach().cpu().numpy().flatten(), dense_output=True, atol = 1e-3, rtol= 1e-6)
+        theta = torch.from_numpy(sol['y'][:self.n_theta,-1]).float().to(self.device)
         return theta
 
-    def geodesic_ode_fun(self, t, x):
-        gamma, dgamma = torch.split(x, split_size_or_sections=int(self.n_theta), dim=-1)
-
-        dL = self.grad_loss(gamma)
-        _, hvp = jvp(self.grad_loss, gamma, dgamma)
-        ddgamma = -dL / (1 + torch.dot(dL, dL)) * torch.dot(dgamma, hvp)
-        dx = torch.cat((dgamma, ddgamma), dim=-1)
+    def geodesic_ode_fun(self, t, x_np):
+        dgamma_np = x_np[self.n_theta:]
+        x_torch = torch.from_numpy(x_np).float().to(self.device).squeeze()
+        gamma, dgamma = torch.split(x_torch, split_size_or_sections=int(self.n_theta), dim=-1)
+        dL = self.grad_loss(gamma).detach().cpu().numpy()
+        hvp = jvp(self.grad_loss, gamma, dgamma)[1].detach().cpu().numpy()
+        ddgamma = -dL / (1 + np.dot(dL, dL)) * np.dot(dgamma_np, hvp)
+        dx = np.concatenate((dgamma_np, ddgamma))
         return dx
 
     def grad_loss(self, theta):
