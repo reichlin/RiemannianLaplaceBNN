@@ -3,18 +3,21 @@ import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.autograd.functional import hessian
+from torch.autograd.functional import hessian, jvp, jacobian
 from torch.distributions.normal import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
 import matplotlib.pyplot as plt
 from models_utils import Network
+from scipy.integrate import solve_ivp
 
 from laplace import Laplace
+
+from torchdiffeq import odeint
 
 
 class LABNN(nn.Module):
 
-    def __init__(self, implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, device):
+    def __init__(self, implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, do_riemannian, device):
         super().__init__()
 
         self.marginal_type = marginal_type
@@ -27,6 +30,8 @@ class LABNN(nn.Module):
         self.weight_decay = weight_decay
 
         self.hessian_type = hessian_type
+
+        self.do_riemannian = do_riemannian
 
         self.f = Network(network_specs, loss_type, probabilistic=probabilistic)
         self.theta = nn.ParameterList([nn.Parameter(torch.zeros(t_size), requires_grad=True) for t_size in self.f.get_theta_shape()])
@@ -148,11 +153,35 @@ class LABNN(nn.Module):
             posterior_precision = H + best_w * self.I
 
             p_theta = MultivariateNormal(theta, precision_matrix=posterior_precision)
-            py = torch.stack([self(all_x, p_theta.sample()) for _ in range(self.n_test_samples)], 0)
+            if self.do_riemannian:
+                self.n_theta = theta.shape[0]
+                py = torch.stack([self(all_x, self.solve_expmap(theta, p_theta.sample())) for _ in range(self.n_test_samples)], 0)
+            else:
+                py = torch.stack([self(all_x, p_theta.sample()) for _ in range(self.n_test_samples)], 0)
 
         y_map = self(all_x, self.theta)
 
         y_mu = py.mean(0)
         y_std = py.std(0)
         return y_map, y_mu, y_std, py
+
+    def solve_expmap(self, x, v):
+        # exp_x(v) for point on manifold x & tangent vector v
+        x0 = torch.cat((x, v), dim=-1)
+        sol = solve_ivp(self.geodesic_ode_fun, [0, 1], x0.detach().cpu().numpy().flatten(), dense_output=True, atol = 1e-3, rtol= 1e-6)
+        theta = torch.from_numpy(sol['y'][:self.n_theta,-1]).float().to(self.device)
+        return theta
+
+    def geodesic_ode_fun(self, t, x_np):
+        dgamma_np = x_np[self.n_theta:]
+        x_torch = torch.from_numpy(x_np).float().to(self.device).squeeze()
+        gamma, dgamma = torch.split(x_torch, split_size_or_sections=int(self.n_theta), dim=-1)
+        dL = self.grad_loss(gamma).detach().cpu().numpy()
+        hvp = jvp(self.grad_loss, gamma, dgamma)[1].detach().cpu().numpy()
+        ddgamma = -dL / (1 + np.dot(dL, dL)) * np.dot(dgamma_np, hvp)
+        dx = np.concatenate((dgamma_np, ddgamma))
+        return dx
+
+    def grad_loss(self, theta):
+        return jacobian(self.loss_f, (theta, self.x_train, self.y_train), create_graph=True)[0]
 

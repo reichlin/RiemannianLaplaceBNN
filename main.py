@@ -180,7 +180,7 @@ elif model_names[model_type][:11] == 'Laplace_BNN':  # LA hyperparams
 
     marginal_type = 'determinant'
 
-    model = LABNN(implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, device).to(device)
+    model = LABNN(implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, True, device).to(device)
 
     name_exp += '_hessian_type=' + hessian_type
 
