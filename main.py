@@ -27,6 +27,8 @@ parser.add_argument('--std', default=0, type=float, help="initial standard devia
 parser.add_argument('--hessian_type', default=6, type=int, help="0: full, 1: diag, 2: fisher, 3: kron, 4: lowrank, 5: gp, 6:gauss_newton")
 parser.add_argument('--prob', default=0, type=int, help="0: deterministic_out, 1: probabilistic_out")
 
+parser.add_argument('--use_reimann', default=1, type=int, help="0: don't use, 1: use")
+
 args = parser.parse_args()
 
 assert (args.prob == 1 if args.model_type == 0 else True), "When using Variational Inference the model has to be probabilistic"
@@ -180,7 +182,9 @@ elif model_names[model_type][:11] == 'Laplace_BNN':  # LA hyperparams
 
     marginal_type = 'determinant'
 
-    model = LABNN(implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, True, device).to(device)
+    use_riemann = args.use_riemann == 1
+
+    model = LABNN(implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, use_riemann, device).to(device)
 
     name_exp += '_hessian_type=' + hessian_type
 

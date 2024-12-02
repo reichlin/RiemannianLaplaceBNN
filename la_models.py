@@ -72,7 +72,7 @@ class LABNN(nn.Module):
             H = theta_grad.view(-1, 1) @ theta_grad.view(1, -1)
         elif self.hessian_type == 'gauss_newton':
 
-            J = torch.squeeze(torch.autograd.functional.jacobian(self.forward, (x_train, theta))[1])
+            J = torch.squeeze(jacobian(self.forward, (x_train, theta))[1])
 
             if self.loss_category == 'classification':
                 z = self.forward(x_train, theta)
@@ -169,7 +169,7 @@ class LABNN(nn.Module):
         # exp_x(v) for point on manifold x & tangent vector v
         x0 = torch.cat((x, v), dim=-1)
         sol = solve_ivp(self.geodesic_ode_fun, [0, 1], x0.detach().cpu().numpy().flatten(), dense_output=True, atol = 1e-3, rtol= 1e-6)
-        theta = torch.from_numpy(sol['y'][:self.n_theta,-1]).float().to(self.device)
+        theta = torch.from_numpy(sol['y'][:self.n_theta, -1]).float().to(self.device)
         return theta
 
     def geodesic_ode_fun(self, t, x_np):
