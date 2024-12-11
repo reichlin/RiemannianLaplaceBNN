@@ -14,9 +14,13 @@ from la_models import LABNN
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--experiment', default=0, type=int, help="0: regression, 1: banana, 2-7: UCI, 8: MNIST, 9: FashionMNIST")
+parser.add_argument('--experiment', default=1, type=int, help="0: regression, 1: banana, 2-7: UCI, 8: MNIST, 9: FashionMNIST")
 
-parser.add_argument('--model_type', default=2, type=int, help="-1: test, 0: VI_BNN, 1: Laplace_BNN, 2: Laplace_BNN_our, 3: RiemannianLaplace_BNN")
+parser.add_argument('--model_type', default=2, type=int, help="-1: test, 0: VI_BNN, 1: Laplace_BNN, 2: Laplace_BNN_our")
+parser.add_argument('--use_riemann', default=0, type=int, help="0: don't use, 1: use")
+parser.add_argument('--use_linear_network', default=1, type=int, help="0: don't use, 1: use")
+parser.add_argument('--tune_alpha', default=1, type=int, help="0: don't use, 1: use")
+
 parser.add_argument('--model_size', default=0, type=int, help="0: small, 1: big, 2: real")
 parser.add_argument('--seed', default=0, type=int, help="seed")
 
@@ -24,10 +28,8 @@ parser.add_argument('--wd', default=0.01, type=float, help="L2 regularization")
 parser.add_argument('--kl', default=0.01, type=float, help="KL weighting term")
 parser.add_argument('--std', default=0, type=float, help="initial standard deviation")
 
-parser.add_argument('--hessian_type', default=6, type=int, help="0: full, 1: diag, 2: fisher, 3: kron, 4: lowrank, 5: gp, 6:gauss_newton")
+parser.add_argument('--hessian_type', default=1, type=int, help="0: full, 1: diag, 2: fisher, 3: kron, 4: lowrank, 5: gp, 6:gauss_newton")
 parser.add_argument('--prob', default=0, type=int, help="0: deterministic_out, 1: probabilistic_out")
-
-parser.add_argument('--use_riemann', default=1, type=int, help="0: don't use, 1: use")
 
 args = parser.parse_args()
 
@@ -73,7 +75,7 @@ if experiment == 'regression':
     n_test_samples = 100
     lr = 1e-3
     EPOCHS = 1000000
-    testing_epochs = 10000
+    testing_epochs = 1000
     ood = True
     probabilistic = args.prob == 1
     loss_type = 'NLL' if probabilistic else 'mse'
@@ -101,7 +103,7 @@ elif experiment == 'banana':
     n_test_samples = 100
     lr = 1e-3
     EPOCHS = 2500
-    testing_epochs = 250
+    testing_epochs = 25
     probabilistic = False
     loss_type = 'CE'
 
@@ -183,10 +185,14 @@ elif model_names[model_type][:11] == 'Laplace_BNN':  # LA hyperparams
     marginal_type = 'determinant'
 
     use_riemann = args.use_riemann == 1
+    use_linear_network = args.use_linear_network == 1
+    tune_alpha = args.tune_alpha == 1
 
-    model = LABNN(implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, use_riemann, device).to(device)
+    model = LABNN(implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, use_linear_network, use_riemann, tune_alpha, device).to(device)
 
     name_exp += '_hessian_type=' + hessian_type
+    name_exp += '_riemannian=' + str(use_riemann) + '_lin=' + str(use_linear_network)
+    name_exp += '_tune_alpha=' + str(tune_alpha)
 
 
 writer = SummaryWriter("logs/" + name_exp + "bohboh")

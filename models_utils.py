@@ -73,6 +73,7 @@ class Network(nn.Module):
         mu, sigma = torch.split(out, out.shape[-1] // 2, dim=-1)
         return torch.concatenate([mu, F.softplus(sigma) + 0.01], -1)
 
+
     # def loss_neglikelihood(self, y_pred, y):
     #     if self.loss_type == 'mse':
     #         mse = (y_pred - y)**2
