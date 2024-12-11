@@ -73,6 +73,31 @@ class Network(nn.Module):
         mu, sigma = torch.split(out, out.shape[-1] // 2, dim=-1)
         return torch.concatenate([mu, F.softplus(sigma) + 0.01], -1)
 
+
+    # def loss_neglikelihood(self, y_pred, y):
+    #     if self.loss_type == 'mse':
+    #         mse = (y_pred - y)**2
+    #         if y_pred.dim() > 2:
+    #             mse = torch.sum(mse, dim=tuple(range(1, mse.dim())))
+    #         return mse.mean()
+    #     elif self.loss_type == 'NLL':
+    #         N = Normal(*torch.split(y_pred, y_pred.shape[-1] // 2, dim=-1))
+    #         nll = - N.log_prob(y)
+    #         if y_pred.dim() > 2:
+    #             nll = torch.sum(nll, dim=tuple(range(1, nll.dim())))
+    #         return nll.mean()
+    #     elif self.loss_type == 'CE':
+    #
+    #         shape = y.shape
+    #         if len(shape) > 1:
+    #             y = y.view(-1)
+    #             y_pred = y_pred.view(-1, y_pred.shape[-1])
+    #             ce = F.cross_entropy(y_pred, y.long(), reduction='none')
+    #             ce = torch.reshape(ce, shape)
+    #             ce = torch.sum(ce, dim=tuple(range(1, ce.dim())))
+    #         else:
+    #             ce = F.cross_entropy(y_pred, y.long(), reduction='none')
+    #         return ce.mean()
     def loss_neglikelihood(self, y_pred, y):
         if self.loss_type == 'mse':
             L = (y_pred - y)**2 / 2
@@ -85,6 +110,10 @@ class Network(nn.Module):
                 y = y.view(-1)
                 y_pred = y_pred.view(-1, y_pred.shape[-1])
             L = F.cross_entropy(y_pred, y.long(), reduction='none')
+            #     ce = torch.reshape(ce, shape)
+            #     ce = torch.sum(ce, dim=tuple(range(1, ce.dim())))
+            # else:
+            #     ce = F.cross_entropy(y_pred, y.long(), reduction='none')
         return L.sum()
 
 
@@ -102,7 +131,6 @@ def regression_metrics(model, loader):
     stats_metrics['MSE'] = [np.mean(mse), np.std(mse)]
 
     return stats_metrics
-
 
 def classification_metrics(model, loader):
 
@@ -146,19 +174,16 @@ def get_regression_fig(model, loader, device):
 
     fig = plt.figure()
 
-    plt.scatter(x_train, y_train, color='tab:blue', label='D_train')
-    plt.scatter(x_test, y_test, color='tab:red', label='D_test')
-    plt.plot(all_x, y_map, color='tab:green', linewidth=3, label='MAP')
-    plt.plot(all_x, y_mu, color='tab:orange', linewidth=3, label='Posterior Mean')
-    plt.fill_between(all_x, y_mu - y_std, y_mu + y_std, alpha=0.3, color='tab:green')
-    plt.plot(all_x, py.detach().cpu().numpy()[0, :, 0], color='tab:orange', alpha=0.1, label='Posterior Samples')
+    plt.scatter(x_train, y_train, color='tab:blue')
+    plt.scatter(x_test, y_test, color='tab:red')
+    plt.plot(all_x, y_map, color='tab:green', linewidth=3)
+    plt.fill_between(all_x, y_map - y_std, y_map + y_std, alpha=0.5, color='tab:green')
     for y_sample in py:
         plt.plot(all_x, y_sample.detach().cpu().numpy()[:, 0], color='tab:orange', alpha=0.1)
     plt.ylim(-4, 4)
-    plt.tight_layout(rect=[0, 0.15, 1, 1])
-    plt.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=3)  # Adjust legend position and columns
 
     return fig
+
 
 
 def get_banana_fig(model, loader, device):
