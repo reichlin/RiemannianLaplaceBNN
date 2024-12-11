@@ -39,8 +39,8 @@ class LABNN(nn.Module):
 
         self.I = torch.eye(self.f.tot_params).to(self.device)
 
-        self.optimizer = torch.optim.AdamW(self.parameters(), lr=lr, weight_decay=weight_decay)
-        # self.optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=weight_decay)
+        # self.optimizer = torch.optim.AdamW(self.parameters(), lr=lr, weight_decay=weight_decay)
+        self.optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=weight_decay)
 
     def forward(self, x, theta=None):
         if theta is None:
@@ -143,13 +143,13 @@ class LABNN(nn.Module):
             py = torch.stack([self(all_x, self.f.get_unflat_params(weights)) for weights in la.sample(self.n_test_samples)], 0)
 
         else:
-            x_train, y_train = loader.dataset.x_train, loader.dataset.y_train
+            self.x_train, self.y_train = loader.dataset.x_train, loader.dataset.y_train
 
             theta = self.f.get_flat_params(self.theta)
 
-            H = self.get_hessian(theta, x_train, y_train.float())
+            H = self.get_hessian(theta, self.x_train, self.y_train.float())
 
-            best_w = self.find_hyper(theta, H, x_train, y_train, 100)
+            best_w = self.find_hyper(theta, H, self.x_train, self.y_train, 100)
 
             posterior_precision = H + best_w * self.I
 
