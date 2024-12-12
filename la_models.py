@@ -17,7 +17,7 @@ from torchdiffeq import odeint
 
 class LABNN(nn.Module):
 
-    def __init__(self, implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, do_riemannian, device):
+    def __init__(self, implementation_type, loss_category, network_specs, weight_decay, lr, loss_type, n_test_samples, hessian_type, probabilistic, marginal_type, lin_network, do_riemannian, tune_alpha, device):
         super().__init__()
 
         self.marginal_type = marginal_type
@@ -32,6 +32,8 @@ class LABNN(nn.Module):
         self.hessian_type = hessian_type
 
         self.do_riemannian = do_riemannian
+        self.lin_network = lin_network
+        self.tune_alpha = tune_alpha
 
         self.f = Network(network_specs, loss_type, probabilistic=probabilistic)
         self.theta = nn.ParameterList([nn.Parameter(torch.zeros(t_size), requires_grad=True) for t_size in self.f.get_theta_shape()])
@@ -39,8 +41,8 @@ class LABNN(nn.Module):
 
         self.I = torch.eye(self.f.tot_params).to(self.device)
 
-        self.optimizer = torch.optim.AdamW(self.parameters(), lr=lr, weight_decay=weight_decay)
-        # self.optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=weight_decay)
+        # self.optimizer = torch.optim.AdamW(self.parameters(), lr=lr, weight_decay=weight_decay)
+        self.optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=weight_decay)
 
     def forward(self, x, theta=None):
         if theta is None:
@@ -49,6 +51,13 @@ class LABNN(nn.Module):
             return self.f(x, theta)
         except:
             return self.f(x, self.f.get_unflat_params(theta))
+
+    def forward_lin(self, x_train, theta_map, theta):
+        f_lin = self.forward(x_train, theta_map) + jvp(self.forward, (x_train, theta_map), v=(x_train, theta-theta_map))[1]
+        return f_lin
+
+    def loss_f_lin(self, theta_map, theta, x, y):
+        return self.f.loss_neglikelihood(self.forward_lin(x, theta_map, theta), y)
 
     def loss(self, y_pred, y):
         L_evidence = self.f.loss_neglikelihood(y_pred, y)
@@ -129,6 +138,9 @@ class LABNN(nn.Module):
 
     def posterior(self, all_x, loader):
 
+        self.x_train, self.y_train = loader.dataset.x_train, loader.dataset.y_train
+        theta = self.f.get_flat_params(self.theta)
+
         if self.implementation_type == 0:
 
             la = Laplace(self,
@@ -136,29 +148,50 @@ class LABNN(nn.Module):
                          subset_of_weights="all",
                          hessian_structure=self.hessian_type)
             la.fit(loader)
-            la.optimize_prior_precision(method='marglik',
-                                        pred_type='glm',
-                                        link_approx='mc')
+            if self.tune_alpha:
+                la.optimize_prior_precision(method='marglik',
+                                            pred_type='glm',
+                                            link_approx='mc')
+                self.best_w = la.prior_precision
+            else:
+                self.best_w = self.weight_decay
 
-            py = torch.stack([self(all_x, self.f.get_unflat_params(weights)) for weights in la.sample(self.n_test_samples)], 0)
+            # py = torch.stack([self(all_x, self.f.get_unflat_params(weights)) for weights in la.sample(self.n_test_samples)], 0)
+            if self.do_riemannian:
+                self.dim_theta = theta.shape[0]
+                if self.lin_network:
+                    py = torch.stack([self.forward_lin(all_x, theta, self.solve_expmap(theta, weights)) for weights in la.sample(self.n_test_samples)], 0)
+                else:
+                    py = torch.stack([self(all_x, self.solve_expmap(theta, weights)) for weights in la.sample(self.n_test_samples)], 0)
+            else:
+                if self.lin_network:
+                    py = torch.stack([self.forward_lin(all_x, theta, weights) for weights in la.sample(self.n_test_samples)], 0)
+                else:
+                    py = torch.stack([self(all_x, weights) for weights in la.sample(self.n_test_samples)], 0)
 
         else:
-            x_train, y_train = loader.dataset.x_train, loader.dataset.y_train
 
-            theta = self.f.get_flat_params(self.theta)
+            H = self.get_hessian(theta, self.x_train, self.y_train.float())
 
-            H = self.get_hessian(theta, x_train, y_train.float())
+            if self.tune_alpha:
+                self.best_w = self.find_hyper(theta, H, self.x_train, self.y_train, 100)
+            else:
+                self.best_w = self.weight_decay
 
-            best_w = self.find_hyper(theta, H, x_train, y_train, 100)
-
-            posterior_precision = H + best_w * self.I
+            posterior_precision = H + self.best_w * self.I
 
             p_theta = MultivariateNormal(theta, precision_matrix=posterior_precision)
             if self.do_riemannian:
-                self.n_theta = theta.shape[0]
-                py = torch.stack([self(all_x, self.solve_expmap(theta, p_theta.sample())) for _ in range(self.n_test_samples)], 0)
+                self.dim_theta = theta.shape[0]
+                if self.lin_network:
+                    py = torch.stack([self.forward_lin(all_x, theta, self.solve_expmap(theta, p_theta.sample())) for _ in range(self.n_test_samples)], 0)
+                else:
+                    py = torch.stack([self(all_x, self.solve_expmap(theta, p_theta.sample())) for _ in range(self.n_test_samples)], 0)
             else:
-                py = torch.stack([self(all_x, p_theta.sample()) for _ in range(self.n_test_samples)], 0)
+                if self.lin_network:
+                    py = torch.stack([self.forward_lin(all_x, theta, p_theta.sample()) for _ in range(self.n_test_samples)], 0)
+                else:
+                    py = torch.stack([self(all_x, p_theta.sample()) for _ in range(self.n_test_samples)], 0)
 
         y_map = self(all_x, self.theta)
 
@@ -170,19 +203,22 @@ class LABNN(nn.Module):
         # exp_x(v) for point on manifold x & tangent vector v
         x0 = torch.cat((x, v), dim=-1)
         sol = solve_ivp(self.geodesic_ode_fun, [0, 1], x0.detach().cpu().numpy().flatten(), dense_output=True, atol = 1e-3, rtol= 1e-6)
-        theta = torch.from_numpy(sol['y'][:self.n_theta, -1]).float().to(self.device)
+        theta = torch.from_numpy(sol['y'][:self.dim_theta, -1]).float().to(self.device)
         return theta
 
     def geodesic_ode_fun(self, t, x_np):
-        dgamma_np = x_np[self.n_theta:]
+        dgamma_np = x_np[self.dim_theta:]
         x_torch = torch.from_numpy(x_np).float().to(self.device).squeeze()
-        gamma, dgamma = torch.split(x_torch, split_size_or_sections=int(self.n_theta), dim=-1)
+        gamma, dgamma = torch.split(x_torch, split_size_or_sections=int(self.dim_theta), dim=-1)
         dL = self.grad_loss(gamma).detach().cpu().numpy()
-        hvp = jvp(self.grad_loss, gamma, dgamma)[1].detach().cpu().numpy()
+        hvp = jvp(self.grad_loss, inputs=gamma, v=dgamma)[1].detach().cpu().numpy()
         ddgamma = -dL / (1 + np.dot(dL, dL)) * np.dot(dgamma_np, hvp)
         dx = np.concatenate((dgamma_np, ddgamma))
         return dx
 
     def grad_loss(self, theta):
-        return jacobian(self.loss_f, (theta, self.x_train, self.y_train), create_graph=True)[0]
+        if self.lin_network:
+            return jacobian(self.loss_f_lin, (self.f.get_flat_params(self.theta), theta, self.x_train, self.y_train), create_graph=True)[1] + 2 * self.best_w * theta
+        else:
+            return jacobian(self.loss_f, (theta, self.x_train, self.y_train), create_graph=True)[0] + 2 * self.best_w * theta
 

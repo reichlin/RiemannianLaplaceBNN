@@ -12,36 +12,44 @@ from vi_model import VIBNN
 from la_models import LABNN
 
 
+'''
+map estimate for small network should fit better
+diagonal is better than gauss-newton
+linear version very shitty, in paper kinda ok
+'''
+
+
+
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--experiment', default=1, type=int, help="0: regression, 1: banana, 2-7: UCI, 8: MNIST, 9: FashionMNIST")
+parser.add_argument('--experiment', default=0, type=int, help="0: regression, 1: banana, 2-7: UCI, 8: MNIST, 9: FashionMNIST")
 
-parser.add_argument('--model_type', default=2, type=int, help="-1: test, 0: VI_BNN, 1: Laplace_BNN, 2: Laplace_BNN_our")
+parser.add_argument('--model_type', default=1, type=int, help="-1: test, 0: VI_BNN, 1: Laplace_BNN, 2: Laplace_BNN_our")
 parser.add_argument('--use_riemann', default=0, type=int, help="0: don't use, 1: use")
-parser.add_argument('--use_linear_network', default=1, type=int, help="0: don't use, 1: use")
+parser.add_argument('--use_linear_network', default=0, type=int, help="0: don't use, 1: use")
 parser.add_argument('--tune_alpha', default=1, type=int, help="0: don't use, 1: use")
 
 parser.add_argument('--model_size', default=0, type=int, help="0: small, 1: big, 2: real")
 parser.add_argument('--seed', default=0, type=int, help="seed")
 
-parser.add_argument('--wd', default=0.01, type=float, help="L2 regularization")
+parser.add_argument('--wd', default=0.001, type=float, help="L2 regularization")
 parser.add_argument('--kl', default=0.01, type=float, help="KL weighting term")
 parser.add_argument('--std', default=0, type=float, help="initial standard deviation")
 
-parser.add_argument('--hessian_type', default=1, type=int, help="0: full, 1: diag, 2: fisher, 3: kron, 4: lowrank, 5: gp, 6:gauss_newton")
+parser.add_argument('--hessian_type', default=0, type=int, help="0: full, 1: diag, 2: fisher, 3: kron, 4: lowrank, 5: gp, 6:gauss_newton")
 parser.add_argument('--prob', default=0, type=int, help="0: deterministic_out, 1: probabilistic_out")
 
 args = parser.parse_args()
 
 assert (args.prob == 1 if args.model_type == 0 else True), "When using Variational Inference the model has to be probabilistic"
 
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cpu') #torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 seed = args.seed
 torch.manual_seed(seed)
 np.random.seed(seed)
 
 model_type = args.model_type
-model_names = {-1: 'test', 0: 'VI_BNN', 1: 'Laplace_BNN', 2: 'Laplace_BNN_our', 3: 'RiemannianLaplace_BNN'}
+model_names = {-1: 'test', 0: 'VI_BNN', 1: 'Laplace_BNN', 2: 'Laplace_BNN_our'}
 model_sizes = {0: 'small', 1: 'big', 2: 'real'}
 model_size = model_sizes[args.model_size]
 experiments_type = {0: 'regression',
@@ -71,11 +79,11 @@ if experiment == 'regression':
 
     loss_category = 'regression'
 
-    batch_size = 32 #150
+    batch_size = 200
     n_test_samples = 100
     lr = 1e-3
-    EPOCHS = 1000000
-    testing_epochs = 1000
+    EPOCHS = 700000 if model_size == 'small' else 35000
+    testing_epochs = int(EPOCHS/100)
     ood = True
     probabilistic = args.prob == 1
     loss_type = 'NLL' if probabilistic else 'mse'
@@ -92,7 +100,7 @@ if experiment == 'regression':
 
     dataset = Regression(ood, device)
 
-    name_exp += '_n_samples=' + str(n_test_samples) + '_ood=' + str(ood) + '_probabilistic-output=' + str(probabilistic)
+    name_exp += '_n_samples=' + str(n_test_samples) + '_ood=' + str(ood) #+ '_probabilistic-output=' + str(probabilistic)
 
 elif experiment == 'banana':
 
@@ -195,7 +203,7 @@ elif model_names[model_type][:11] == 'Laplace_BNN':  # LA hyperparams
     name_exp += '_tune_alpha=' + str(tune_alpha)
 
 
-writer = SummaryWriter("logs/" + name_exp + "bohboh")
+writer = SummaryWriter("logs/" + name_exp + "")
 
 
 loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=0, shuffle=True)
@@ -221,15 +229,22 @@ for epoch in tqdm(range(EPOCHS)):
     if epoch % testing_epochs == testing_epochs-1:
         model.eval()
 
-        metrics = get_metrics(model, loader)
-        for metric_key in metrics:
-            writer.add_scalar('Metrics/' + metric_key + '/mean', metrics[metric_key][0], int(epoch / testing_epochs))
-            writer.add_scalar('Metrics/' + metric_key + '/std', metrics[metric_key][1], int(epoch / testing_epochs))
+        # metrics = get_metrics(model, loader)
+        # for metric_key in metrics:
+        #     writer.add_scalar('Metrics/' + metric_key + '/mean', metrics[metric_key][0], int(epoch / testing_epochs))
+        #     writer.add_scalar('Metrics/' + metric_key + '/std', metrics[metric_key][1], int(epoch / testing_epochs))
 
-        fig = plotter(model, loader, device)
-        if fig is not None:
-            writer.add_figure('Posterior', fig, epoch)
-            plt.close()
+        # fig = plotter(model, loader, device)
+        # if fig is not None:
+        #     writer.add_figure('Posterior', fig, epoch)
+        #     plt.close()
 
+model.eval()
+fig = plotter(model, loader, device)
+if fig is not None:
+    # writer.add_figure('Posterior', fig, epoch)
+    # plt.close()
+    plt.savefig('./imgs/' + name_exp + ".pdf")
+    plt.close()
 
 writer.close()
