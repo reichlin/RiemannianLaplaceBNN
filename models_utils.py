@@ -199,7 +199,7 @@ def get_banana_fig(model, loader, device):
     plt.colorbar(contour_like, ax=axes[0], orientation='vertical')
     axes[0].scatter(x_test[:, 0], x_test[:, 1],
                     c=y_test, cmap=ListedColormap(["tab:purple", "tab:orange"]),
-                    edgecolor='black', linewidth=0.15, s=5, zorder=1, alpha=1.0)
+                    edgecolor='black', linewidth=0.01, s=15, zorder=1, alpha=1.0)
     axes[0].set_title("Likelihood Uncertainty")
     contour_unc = axes[1].contourf(
         XX1,
@@ -213,7 +213,7 @@ def get_banana_fig(model, loader, device):
     plt.colorbar(contour_unc, ax=axes[1], orientation='vertical')
     axes[1].scatter(x_test[:, 0], x_test[:, 1],
                     c=y_test, cmap=ListedColormap(["tab:purple", "tab:orange"]),
-                    edgecolor='black', linewidth=0.15, s=5, zorder=1, alpha=1.0)
+                    edgecolor='black', linewidth=0.01, s=15, zorder=1, alpha=1.0)
     axes[1].set_title("Model Uncertainty")
     plt.tight_layout()
 

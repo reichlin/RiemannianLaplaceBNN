@@ -22,17 +22,19 @@ linear version very shitty, in paper kinda ok
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--experiment', default=0, type=int, help="0: regression, 1: banana, 2-7: UCI, 8: MNIST, 9: FashionMNIST")
+parser.add_argument('--experiment', default=1, type=int, help="0: regression, 1: banana, 2-7: UCI, 8: MNIST, 9: FashionMNIST")
 
 parser.add_argument('--model_type', default=1, type=int, help="-1: test, 0: VI_BNN, 1: Laplace_BNN, 2: Laplace_BNN_our")
 parser.add_argument('--use_riemann', default=0, type=int, help="0: don't use, 1: use")
 parser.add_argument('--use_linear_network', default=0, type=int, help="0: don't use, 1: use")
 parser.add_argument('--tune_alpha', default=1, type=int, help="0: don't use, 1: use")
 
+parser.add_argument('--ood_regr', default=0, type=int, help="")
+
 parser.add_argument('--model_size', default=0, type=int, help="0: small, 1: big, 2: real")
 parser.add_argument('--seed', default=0, type=int, help="seed")
 
-parser.add_argument('--wd', default=0.001, type=float, help="L2 regularization")
+parser.add_argument('--wd', default=0.01, type=float, help="L2 regularization")
 parser.add_argument('--kl', default=0.01, type=float, help="KL weighting term")
 parser.add_argument('--std', default=0, type=float, help="initial standard deviation")
 
@@ -80,11 +82,11 @@ if experiment == 'regression':
     loss_category = 'regression'
 
     batch_size = 200
-    n_test_samples = 100
+    n_test_samples = 20 #100
     lr = 1e-3
-    EPOCHS = 700000 if model_size == 'small' else 35000
+    EPOCHS = 50000 if model_size == 'small' else 35000 #700000
     testing_epochs = int(EPOCHS/100)
-    ood = True
+    ood = args.ood_regr #False
     probabilistic = args.prob == 1
     loss_type = 'NLL' if probabilistic else 'mse'
 
@@ -203,7 +205,7 @@ elif model_names[model_type][:11] == 'Laplace_BNN':  # LA hyperparams
     name_exp += '_tune_alpha=' + str(tune_alpha)
 
 
-writer = SummaryWriter("logs/" + name_exp + "")
+writer = SummaryWriter("logs/" + name_exp + "_adamW")
 
 
 loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=0, shuffle=True)

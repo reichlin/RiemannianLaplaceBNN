@@ -53,7 +53,10 @@ class LABNN(nn.Module):
             return self.f(x, self.f.get_unflat_params(theta))
 
     def forward_lin(self, x_train, theta_map, theta):
-        f_lin = self.forward(x_train, theta_map) + jvp(self.forward, (x_train, theta_map), v=(x_train, theta-theta_map))[1]
+        # f_lin = self.forward(x_train, theta_map) + jvp(self.forward, (x_train, theta_map), v=(x_train, theta-theta_map))[1]
+        J = torch.squeeze(jacobian(self.forward, (x_train, theta_map))[1])
+        f_0 = self.forward(x_train, theta_map)
+        f_lin = f_0 + torch.reshape(J @ torch.unsqueeze(theta-theta_map, -1), f_0.shape)
         return f_lin
 
     def loss_f_lin(self, theta_map, theta, x, y):
@@ -156,7 +159,6 @@ class LABNN(nn.Module):
             else:
                 self.best_w = self.weight_decay
 
-            # py = torch.stack([self(all_x, self.f.get_unflat_params(weights)) for weights in la.sample(self.n_test_samples)], 0)
             if self.do_riemannian:
                 self.dim_theta = theta.shape[0]
                 if self.lin_network:
@@ -218,7 +220,7 @@ class LABNN(nn.Module):
 
     def grad_loss(self, theta):
         if self.lin_network:
-            return jacobian(self.loss_f_lin, (self.f.get_flat_params(self.theta), theta, self.x_train, self.y_train), create_graph=True)[1] + 2 * self.best_w * theta
+            return jacobian(self.loss_f_lin, (self.f.get_flat_params(self.theta), theta, self.x_train, self.y_train.float()), create_graph=True)[1] + 2 * self.best_w * theta
         else:
-            return jacobian(self.loss_f, (theta, self.x_train, self.y_train), create_graph=True)[0] + 2 * self.best_w * theta
+            return jacobian(self.loss_f, (theta, self.x_train, self.y_train.float()), create_graph=True)[0] + 2 * self.best_w * theta
 
