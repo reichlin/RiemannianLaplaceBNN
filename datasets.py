@@ -64,7 +64,7 @@ class Banana(Dataset):
         N = x_full.shape[0]
         idx = np.arange(N)
         np.random.shuffle(idx)
-        self.x_train = x_full[idx[:int(split_train_size*N)]]
+        self.x_train = x_full[idx[:int(split_train_size * N)]]
         self.y_train = y_full[idx[:int(split_train_size * N)]]
         self.x_test = x_full[idx[int(split_train_size * N):]]
         self.y_test = y_full[idx[int(split_train_size * N):]]
@@ -124,13 +124,13 @@ class Uci(Dataset):
             y[col] = y[col].cat.codes
 
         X = torch.from_numpy(X.values).float().to(device)
-        y = torch.from_numpy(y.values).long().to(device)
+        y = torch.squeeze(torch.from_numpy(y.values).long().to(device))
 
         split_train_size = 0.7
         N = X.shape[0]
         idx = np.arange(N)
         np.random.shuffle(idx)
-        self.x_train = X[idx[:int(split_train_size*N)]]
+        self.x_train = X[idx[:int(split_train_size * N)]]
         self.y_train = y[idx[:int(split_train_size * N)]]
         self.x_test = X[idx[int(split_train_size * N):]]
         self.y_test = y[idx[int(split_train_size * N):]]

@@ -22,7 +22,7 @@ linear version very shitty, in paper kinda ok
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--experiment', default=1, type=int, help="0: regression, 1: banana, 2-7: UCI, 8: MNIST, 9: FashionMNIST")
+parser.add_argument('--experiment', default=2, type=int, help="0: regression, 1: banana, 2-7: UCI, 8: MNIST, 9: FashionMNIST")
 
 parser.add_argument('--model_type', default=1, type=int, help="-1: test, 0: VI_BNN, 1: Laplace_BNN, 2: Laplace_BNN_our")
 parser.add_argument('--use_riemann', default=0, type=int, help="0: don't use, 1: use")
@@ -140,7 +140,7 @@ elif experiment[:3] == 'UCI':
     batch_size = 32
     n_test_samples = 30
     lr = 1e-3
-    EPOCHS = 10000
+    EPOCHS = 1000#0
     testing_epochs = 100
     probabilistic = False
     loss_type = 'CE'
@@ -205,7 +205,7 @@ elif model_names[model_type][:11] == 'Laplace_BNN':  # LA hyperparams
     name_exp += '_tune_alpha=' + str(tune_alpha)
 
 
-writer = SummaryWriter("logs/" + name_exp + "_adamW")
+writer = SummaryWriter("logs/" + name_exp + "_adamW_2")
 
 
 loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=0, shuffle=True)
@@ -248,5 +248,13 @@ if fig is not None:
     # plt.close()
     plt.savefig('./imgs/' + name_exp + ".pdf")
     plt.close()
+
+metrics = get_metrics(model, loader)
+
+np.save('results/'+name_exp+'.npy', metrics)
+
+for metric_key in metrics:
+    writer.add_scalar('Metrics/' + metric_key + '/mean', metrics[metric_key][0], int(epoch / testing_epochs))
+    writer.add_scalar('Metrics/' + metric_key + '/std', metrics[metric_key][1], int(epoch / testing_epochs))
 
 writer.close()

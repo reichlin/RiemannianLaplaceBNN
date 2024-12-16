@@ -41,8 +41,8 @@ class LABNN(nn.Module):
 
         self.I = torch.eye(self.f.tot_params).to(self.device)
 
-        # self.optimizer = torch.optim.AdamW(self.parameters(), lr=lr, weight_decay=weight_decay)
-        self.optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=weight_decay)
+        self.optimizer = torch.optim.AdamW(self.parameters(), lr=lr, weight_decay=weight_decay)
+        # self.optimizer = torch.optim.SGD(self.parameters(), lr=lr, weight_decay=weight_decay)
 
     def forward(self, x, theta=None):
         if theta is None:
@@ -53,10 +53,11 @@ class LABNN(nn.Module):
             return self.f(x, self.f.get_unflat_params(theta))
 
     def forward_lin(self, x_train, theta_map, theta):
-        # f_lin = self.forward(x_train, theta_map) + jvp(self.forward, (x_train, theta_map), v=(x_train, theta-theta_map))[1]
-        J = torch.squeeze(jacobian(self.forward, (x_train, theta_map))[1])
-        f_0 = self.forward(x_train, theta_map)
-        f_lin = f_0 + torch.reshape(J @ torch.unsqueeze(theta-theta_map, -1), f_0.shape)
+        f_lin = self.forward(x_train, theta_map) + jvp(self.forward, (x_train, theta_map), v=(x_train, theta-theta_map))[1]
+        # if J is None:
+        #     J = self.J if self.J is not None else torch.squeeze(jacobian(self.forward, (x_train, theta_map))[1])
+        # f_0 = self.forward(x_train, theta_map)
+        # f_lin = f_0 + torch.reshape(J @ torch.unsqueeze(theta-theta_map, -1), f_0.shape)
         return f_lin
 
     def loss_f_lin(self, theta_map, theta, x, y):
